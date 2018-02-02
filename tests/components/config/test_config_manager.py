@@ -4,6 +4,7 @@ import asyncio
 from unittest.mock import patch
 
 import pytest
+import voluptuous as vol
 
 from homeassistant.config_manager import ConfigFlowHandler
 from homeassistant.setup import async_setup_component
@@ -26,7 +27,16 @@ def test_initialize_flow(hass, client):
         def async_step_init(self, user_input=None):
             return self.async_show_form(
                 title='test-title',
-                step_id='init')
+                step_id='init',
+                description='test-description',
+                data_schema=vol.Schema({
+                    vol.Required('username'): str,
+                    vol.Required('password'): str
+                }),
+                errors={
+                    'username': 'Should be unique.'
+                }
+            )
 
     with patch('homeassistant.config_manager.HANDLERS.get',
                return_value=TestFlow):
@@ -37,6 +47,22 @@ def test_initialize_flow(hass, client):
 
     assert data['title'] == 'test-title'
     assert data['step_id'] == 'init'
+    assert data['description'] == 'test-description'
+    assert data['data_schema'] == [
+        {
+            'name': 'username',
+            'required': True,
+            'type': 'string'
+        },
+        {
+            'name': 'password',
+            'required': True,
+            'type': 'string'
+        }
+    ]
+    assert data['errors'] == {
+        'username': 'Should be unique.'
+    }
 
 
 @asyncio.coroutine
@@ -128,6 +154,7 @@ def test_two_step_flow(hass, client):
         assert resp.status == 200
         data = yield from resp.json()
         assert data['type'] == 'form'
+        assert data['data_schema'] == []
 
     with patch('homeassistant.config_manager.HANDLERS.get',
                return_value=TestFlow):

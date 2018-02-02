@@ -8,6 +8,11 @@ from homeassistant.components.http import (
     HomeAssistantView, RequestDataValidator)
 
 
+# Will upload to PyPi when closer to merging.
+REQUIREMENTS = ['https://github.com/balloob/voluptuous-json/archive/master.zip'
+                '#voluptuous_json==0.1']
+
+
 @asyncio.coroutine
 def async_setup(hass):
     """Enable the Home Assistant views."""
@@ -29,6 +34,8 @@ class ConfigManagerView(HomeAssistantView):
     }), allow_empty=True)
     def post(self, request, domain, data):
         """Handle a POST request."""
+        import voluptuous_json
+
         hass = request.app['hass']
 
         if data.get('step_id') in ['discovery']:
@@ -41,5 +48,12 @@ class ConfigManagerView(HomeAssistantView):
             return self.json_message('Invalid handler specified', 404)
         except config_manager.UnknownStep:
             return self.json_message('Invalid step specified', 400)
+
+        if result['type'] == config_manager.RESULT_TYPE_FORM:
+            schema = result['data_schema']
+            if schema is None:
+                result['data_schema'] = []
+            else:
+                result['data_schema'] = voluptuous_json.convert(schema)
 
         return self.json(result)

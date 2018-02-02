@@ -155,7 +155,6 @@ class ConfigManager:
     @asyncio.coroutine
     def async_load(self):
         """Load the config."""
-        assert False
         path = self.hass.config.path(PATH_CONFIG)
         if not os.path.isfile(path):
             self.entries = []
@@ -196,7 +195,7 @@ class ConfigFlowHandler:
 
     @callback
     def async_show_form(self, *, title, step_id, description=None,
-                        data_schema=None, errors=None, total_steps=None):
+                        data_schema=None, errors=None):
         """Return a form to show."""
         return {
             'type': RESULT_TYPE_FORM,
@@ -206,7 +205,6 @@ class ConfigFlowHandler:
             'description': description,
             'data_schema': data_schema,
             'errors': errors,
-            'total_steps': total_steps
         }
 
     @callback

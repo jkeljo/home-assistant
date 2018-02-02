@@ -3,6 +3,7 @@ import asyncio
 from unittest.mock import MagicMock, patch, mock_open
 
 import pytest
+import voluptuous as vol
 
 from homeassistant import config_manager, loader
 from homeassistant.setup import async_setup_component
@@ -96,6 +97,40 @@ def test_configure_two_steps(manager):
         entry = manager.entries[0]
         assert entry.domain == 'test'
         assert entry.data == ['INIT-DATA', 'SECOND-DATA']
+
+
+@asyncio.coroutine
+def test_show_form(manager):
+    """Test that abort removes the flow from progress."""
+    schema = vol.Schema({
+        vol.Required('username'): str,
+        vol.Required('password'): str
+    })
+
+    class TestFlow(config_manager.ConfigFlowHandler):
+        @asyncio.coroutine
+        def async_step_init(self, user_input=None):
+            return self.async_show_form(
+                title='Hello form',
+                step_id='init',
+                description='test-description',
+                data_schema=schema,
+                errors={
+                    'username': 'Should be unique.'
+                }
+            )
+
+    with patch('homeassistant.config_manager.HANDLERS.get',
+               return_value=TestFlow):
+        form = yield from manager.async_configure('test')
+        assert form['type'] == 'form'
+        assert form['title'] == 'Hello form'
+        assert form['step_id'] == 'init'
+        assert form['description'] == 'test-description'
+        assert form['data_schema'] is schema
+        assert form['errors'] == {
+            'username': 'Should be unique.'
+        }
 
 
 @asyncio.coroutine
@@ -232,3 +267,26 @@ def test_saving_and_loading(hass):
         assert orig.title == loaded.title
         assert orig.data == loaded.data
         assert orig.source == loaded.source
+
+
+@asyncio.coroutine
+def test_configure_reuses_handler_instance(manager):
+    """Test that we reuse instances."""
+    class TestFlow(config_manager.ConfigFlowHandler):
+        handle_count = 0
+
+        @asyncio.coroutine
+        def async_step_init(self, user_input=None):
+            self.handle_count += 1
+            return self.async_show_form(
+                title='title',
+                step_id=str(self.handle_count))
+
+    with patch('homeassistant.config_manager.HANDLERS.get',
+               return_value=TestFlow):
+        form = yield from manager.async_configure('test')
+        assert form['step_id'] == '1'
+        form = yield from manager.async_configure('test', form['flow_id'])
+        assert form['step_id'] == '2'
+        assert len(manager.progress) == 1
+        assert len(manager.entries) == 0
