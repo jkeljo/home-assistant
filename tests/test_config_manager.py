@@ -14,14 +14,15 @@ from tests.common import MockModule, mock_coro, MockConfigEntry
 @pytest.fixture
 def manager(hass):
     """Fixture of a loaded config manager."""
-    manager = config_manager.ConfigManager(MagicMock())
+    manager = config_manager.ConfigManager(hass)
     manager.entries = []
+    hass.config_manager = manager
     return manager
 
 
 @asyncio.coroutine
-def test_call_setup_config_entry(hass):
-    """Test we call setup_config_entry."""
+def test_call_setup_entry(hass):
+    """Test we call <component>.setup_entry."""
     MockConfigEntry(domain='comp').add_to_hass(hass)
 
     mock_setup_entry = MagicMock(return_value=mock_coro(True))
@@ -33,6 +34,38 @@ def test_call_setup_config_entry(hass):
     result = yield from async_setup_component(hass, 'comp', {})
     assert result
     assert len(mock_setup_entry.mock_calls) == 1
+
+
+@asyncio.coroutine
+def test_create_entry_calls_setup_entry(hass, manager):
+    """Test we call setup_config_entry."""
+    mock_setup_entry = MagicMock(return_value=mock_coro(True))
+
+    loader.set_component(
+        'comp',
+        MockModule('comp', async_setup_entry=mock_setup_entry))
+
+    class TestFlow(config_manager.ConfigFlowHandler):
+
+        @asyncio.coroutine
+        def async_step_init(self, user_input=None):
+            return self.async_create_entry(
+                title='title',
+                data={
+                    'token': 'supersecret'
+                })
+
+    with patch.dict(config_manager.HANDLERS, {'comp': TestFlow}):
+        yield from manager.async_configure('comp')
+        yield from hass.async_block_till_done()
+
+    assert len(mock_setup_entry.mock_calls) == 1
+    p_hass, p_entry = mock_setup_entry.mock_calls[0][1]
+
+    assert p_hass is hass
+    assert p_entry.data == {
+        'token': 'supersecret'
+    }
 
 
 @asyncio.coroutine

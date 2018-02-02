@@ -5,6 +5,7 @@ import uuid
 
 from .core import callback
 from .exceptions import HomeAssistantError
+from .setup import async_setup_component
 from .util.decorator import Registry
 from .util.json import load_json, save_json
 
@@ -141,14 +142,29 @@ class ConfigManager:
         if result['type'] == RESULT_TYPE_ABORT:
             return result
 
-        self.entries.append(ConfigEntry(
+        entry = ConfigEntry(
             config_id=flow.flow_id,
             version=flow.version,
             domain=domain,
             title=result['title'],
             data=result.pop('data'),
             source=flow.source
-        ))
+        )
+        self.entries.append(entry)
+
+        # Setup entry
+        if domain in self.hass.config.components:
+            # Component already set up, just need to call setup_entry
+            component = getattr(self.hass.components, domain)
+            self.hass.async_add_job(
+                component.async_setup_entry, self.hass, entry)
+        else:
+            # Setting up component will also load the entries
+            # We don't have to pass in the real config. The component would
+            # have been setup already if it contained config for it.
+            self.hass.async_add_job(
+                async_setup_component, self.hass, domain, {})
+
         self.async_schedule_save()
         return result
 
