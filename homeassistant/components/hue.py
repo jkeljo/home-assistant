@@ -4,6 +4,7 @@ This component provides basic support for the Philips Hue system.
 For more details about this component, please refer to the documentation at
 https://home-assistant.io/components/hue/
 """
+import asyncio
 import json
 import logging
 import os
@@ -12,6 +13,7 @@ import socket
 import requests
 import voluptuous as vol
 
+from homeassistant import config_manager
 from homeassistant.components.discovery import SERVICE_HUE
 from homeassistant.const import CONF_FILENAME, CONF_HOST
 import homeassistant.helpers.config_validation as cv
@@ -55,6 +57,8 @@ CONFIG_SCHEMA = vol.Schema({
     }),
 }, extra=vol.ALLOW_EXTRA)
 
+PATH_CONF_FORMAT = '.hue_{}.conf'
+
 ATTR_GROUP_NAME = "group_name"
 ATTR_SCENE_NAME = "scene_name"
 SCENE_SCHEMA = vol.Schema({
@@ -93,7 +97,7 @@ def setup(hass, config):
         hosts = requests.get(API_NUPNP).json()
         bridges = [{
             CONF_HOST: entry['internalipaddress'],
-            CONF_FILENAME: '.hue_{}.conf'.format(entry['id']),
+            CONF_FILENAME: PATH_CONF_FORMAT.format(entry['id']),
         } for entry in hosts]
     else:
         # Component not specified in config, we're loaded via discovery
@@ -257,3 +261,78 @@ class HueBridge(object):
     def set_group(self, light_id, command):
         """Change light settings for a group. See phue for detail."""
         return self.bridge.set_group(light_id, command)
+
+
+@config_manager.HANDLERS.register(DOMAIN)
+class HueConfigFlow(config_manager.ConfigFlowHandler):
+    """Handle a configuration flow for Philips Hue."""
+
+    version = 1
+
+    def __init__(self):
+        """Initialize a Hue config handler."""
+        self.host = None
+        self.hosts = None
+
+    @asyncio.coroutine
+    def async_step_init(self, user_input=None):
+        """Start config flow."""
+        if user_input is not None:
+            self.host = user_input['host']
+            return (yield from self.async_step_button())
+
+        hosts = requests.get(API_NUPNP).json()
+        self.hosts = {host['internalipaddress']: host['id'] for host in hosts}
+
+        if len(hosts) == 0:
+            return self.async_abort(reason='No local Hue bridges found.')
+
+        # If 1 host, select it.
+        elif len(hosts) == 1:
+            self.host = hosts[0]
+            return (yield from self.async_step_button())
+
+        return self.async_show_form(
+            title='Select bridge',
+            step_id='init',
+            data_schema=vol.Schema({
+                'host': vol.In([host['internalipaddress'] for host in hosts])
+            })
+        )
+
+    @asyncio.coroutine
+    def async_step_button(self, user_input=None):
+        """Ask user to press the button."""
+        errors = {}
+        if user_input is not None:
+            import phue
+            bridge_id = self.hosts[self.host]
+            # TODO Phue is silly in that it REQUIRES a file on disk. Switch to a temp file
+            filename = PATH_CONF_FORMAT.format(bridge_id)
+
+            try:
+                phue.Bridge(self.host,
+                            config_file_path=self.hass.config.path(filename))
+
+                return self.async_create_entry(
+                    # TODO what about titles? Can we get name from host?
+                    title='Bridge {}'.format(self.host),
+                    data={
+                        'bridge_id': bridge_id,
+                        'filename': filename,
+                        'host': self.host,
+                    }
+                )
+            except ConnectionRefusedError:
+                # TODO all components that have a config flow have a JSON file that lokalise understands
+                # hue/translations.json
+                errors['base'] = 'unable_connect'
+            except phue.PhueRegistrationException:
+                errors['base'] = 'press_button_again'
+
+        return self.async_show_form(
+            title='Register the bridge',
+            step_id='button',
+            description=CONFIG_INSTRUCTIONS,
+            errors=errors
+        )

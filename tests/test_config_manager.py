@@ -303,23 +303,6 @@ def test_saving_and_loading(hass):
 
 
 @asyncio.coroutine
-def test_configure_reuses_handler_instance(manager):
-    """Test that we reuse instances."""
-    class TestFlow(config_manager.ConfigFlowHandler):
-        handle_count = 0
-
-        @asyncio.coroutine
-        def async_step_init(self, user_input=None):
-            self.handle_count += 1
-            return self.async_show_form(
-                title='title',
-                step_id=str(self.handle_count))
-
-    with patch('homeassistant.config_manager.HANDLERS.get',
-               return_value=TestFlow):
-        form = yield from manager.async_configure('test')
-        assert form['step_id'] == '1'
-        form = yield from manager.async_configure('test', form['flow_id'])
-        assert form['step_id'] == '2'
-        assert len(manager.progress) == 1
-        assert len(manager.entries) == 0
+def test_using_schema_validate_input():
+    # How will this even work, we no longer have last result?
+    pass
